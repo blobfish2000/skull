@@ -1,6 +1,7 @@
 from random import randint, choice
 import os
 from time import sleep
+import mcts
 
 class SkullState:
     def __init__(self, players = 2, starting_cards = 4):
@@ -13,7 +14,22 @@ class SkullState:
         self.bids = [0 for _ in range(players)]
         self.phase = 0 # 0: playing, 1: bidding, 2: flipping
         self.flips = [False for _ in range(players)]
-        self.winner = -1
+        self.winner = -2
+
+    def visible_str(self, player):
+        s = ""
+        s += str(self.to_play)
+        s += str(self.players)
+        s += str(self.player_cards)
+        s += str(self.player_base_hand)
+        s += str(self.has_skull[player])
+        s += str([len(p) for p in self.plays])
+        s += str(self.plays[player])
+        s += str(self.bids)
+        s += str(self.phase)
+        s += str(self.flips)
+        s += str(self.winner)
+        return s
 
     def valid_plays(self) -> list[int]:
         """
@@ -25,6 +41,10 @@ class SkullState:
         """
         player = self.to_play
         plays = []
+        # If there's a winner
+        if self.winner != -2:
+            # We can't play
+            return []
         # If we're out
         if self.player_base_hand[player] == 0:
             # We must pass
@@ -94,7 +114,10 @@ class SkullState:
                 ps += "| Bid: " + str(self.bids[p])
             if self.phase == 2:
                 ps += "Hand: " + str(self.player_cards[p]) + "/" + str(self.player_base_hand[p]) + " "
-                ps += "| Down: " + str(len(self.plays[p])) + " "
+                if -2 in self.plays[p]:
+                    ps += "|*Down: " + str(len(self.plays[p])) + " "
+                else:
+                    ps += "| Down: " + str(len(self.plays[p])) + " "
                 if self.to_play == p:
                     ps += "| Bid: " + str(self.bids[p])
             ps += "\n"
@@ -123,7 +146,7 @@ class SkullState:
                 self.player_cards[player] -= 1
                 #advance play
                 self.to_play = self._next_player()
-                return f"Player {player} plays a card"
+                return f"Player {player} plays {'Skull' if play == -2 else 'Flower'}"
             #if we start bidding
             else:
                 #log the bid
@@ -159,10 +182,16 @@ class SkullState:
             #if it's a skull
             if card == -2:
                 #see if we lose our skull
-                if randstr(1,self.player_base_hand[player]) == 1:
+                if randint(1,self.player_base_hand[player]) == 1:
                     self.has_skull[player] = False
                 #lose a card
-                self.player_base_hand -= 1
+                self.player_base_hand[player] -= 1
+                #if we have no cards
+                if self.player_base_hand[player] == 0:
+                    still_in = [p for p, h in enumerate(self.player_base_hand) if h > 0]
+                    if len(still_in) == 1:
+                        self.winner = still_in[0]
+                        return f"Player {self.winner} wins by exhaustion"
                 #reset
                 self._reset()
                 #and stay on the play
@@ -191,9 +220,14 @@ class SkullState:
                 return f"Player {player} flips {play}'s card and continues"
 
 
-game = SkullState()
+game = SkullState(starting_cards=2)
+
+game.advance(-1)
+game.advance(-1)
+
+game.flips = [True, True]
 plays = []
-while True:
+while game.winner == -2:
     os.system("clear")
     print(game.render())
     print("-"*30)
@@ -201,12 +235,19 @@ while True:
     valid = sorted(game.valid_plays())
     play = -3
     if game.to_play == 0:
-        print("Valid plays: " + ", ".join([str(x) for x in valid]))
-        while play not in valid:
-            play = int(input("Play? "))
-        print() 
+        s = mcts.Searcher(game)
+        play = s.find(10000)
+        #print("Valid plays: " + ", ".join([str(x) for x in valid]))
+        #while play not in valid:
+        #    play = int(input("Play? "))
+        #print() 
     else:
-        sleep(0.5)
-        play = choice(valid)
+        s = mcts.Searcher(game)
+        play = s.find(10000)
     plays.append(game.advance(play))
+
+os.system("clear")
+print(game.render())
+print("-"*30)
+print("\n".join(plays))
 
